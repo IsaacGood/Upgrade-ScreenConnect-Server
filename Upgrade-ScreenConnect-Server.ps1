@@ -7,7 +7,11 @@ Requirements:
   reinstall your old version and restore from the backup files.
 - Upgrade will only be performed if the installer is newer than the currently installed version.
 
-Version 1.0 - 2025-09-11
+1.1 / 2025-12-11
+	Added - Better RMM detection/handling to avoid errors
+	Added - Exit with error if Download Filename can't be determined
+	Fixed - License page changed, quick fix for now, if they change the Cloudflare domain will have to take the time to figure out 'clicking' JavaScript buttons
+1.0 - 2025-06-30
     Forked from Upgrade-ScreenConnect-Server 0.0.1 by David Szpunar https://github.com/dszp/MSP-Scripts/blob/main/ScreenConnect%20Server/Upgrade-ScreenConnect-Server.ps1
     Added - Automatic download of current version, optionally Stable or Pre-Release
     Added - Keep each version of the installer and remove if older than x days
@@ -25,12 +29,22 @@ $DaysToKeepBackups = '180'
 $DownloadFolder = "${env:ProgramFiles(x86)}\ScreenConnect Installers"
 $DaysToKeepInstallers = '180'
 $ReleaseType = 'Release' # Use 'Release' for Stable Release or 'Debug' for Pre-Release
+$BaseDownloadURL = "https://d1kuyuqowve5id.cloudfront.net/"
 # Download page to scrape for the latest version
 # In ScreenConnect go to: Administration > License > ... > Upgrade License
 # and copy that URL below. You'll need to update this whenever you upgrade/renew your license
-$DownloadPage = "https://order.screenconnect.com/Create-Order?UpgradeLicense="
+$DownloadPage = "https://order.screenconnect.com/<blah>"
+
+# Set Write-Information & Write-Verbose console output preferences
+$InformationPreference = 'Continue'
+$VerbosePreference = 'SilentlyContinue'
 
 ### END CONFIG
+
+# Determine if running in Datto RMM or Syncro
+$Datto = Get-Service | Where-Object { $_.DisplayName -match 'Datto RMM' }
+$Syncro = Get-Module | Where-Object { $_.ModuleBase -match 'Syncro' }
+if ($Syncro) { Import-Module $env:SyncroModule -DisableNameChecking }
 
 function Exit-WithError {
     param ($Text)
@@ -74,21 +88,28 @@ $ServiceVersion = (Get-Command $ServicePath).FileVersionInfo.FileVersion
 Write-Host "Installed Path:`t`t" $ServicePath
 Write-Host "Installed Version:`t" $ServiceVersion
 
-# Determine installer URL
+# Determine download URL
 $Request = Invoke-WebRequest -Uri $DownloadPage -UseBasicParsing
-$DownloadURL = ($Request).Links.href | Where-Object { $_ -match "https://[^`"]+ScreenConnect_[\d\.]+_$ReleaseType\.msi" } | Select-Object -First 1
+$DownloadFilename = (($Request).Links.outerHTML | Select-String -Pattern "ScreenConnect_[\d\.]+_$ReleaseType\.msi").matches.value | Select-Object -First 1
+if ([string]::IsNullOrWhiteSpace($DownloadFilename)) {
+    Exit-WithError "Download Filename could not be determined. Exiting."
+}
+$DownloadURL = $BaseDownloadURL + $DownloadFilename
+Write-Host "Download URL:`t`t" $DownloadURL
 
 # Check existing version against version to install
-$InstallerVersion = [regex]::new('(?<=ScreenConnect_)[\d\.]+').matches($DownloadURL).value
-Write-Host "Installer URL Version:`t" $InstallerVersion
-$installedVer = [version]$ServiceVersion
-$installerVer = [version]$InstallerVersion
-if ($installerVer -eq $installedVer) {
-    Exit-WithError "The installer is the same version as current! Exiting."
-} elseif ($installerVer -lt $installedVer) {
-    Exit-WithError "The installer is older than current install! Exiting."
-} elseif ($installerVer -gt $installedVer) {
-    Write-Host "The installer is newer than current install. Proceeding..."
+$DownloadVersion = [regex]::new('(?<=ScreenConnect_)[\d\.]+').matches($DownloadURL).value
+Write-Host "Download URL Version:`t" $InstallerVersion
+$InstalledVersion = [version]$ServiceVersion
+$DownloadVersion = [version]$InstallerVersion
+if ($DownloadVersion -eq $InstalledVersion) {
+    Write-Host "The download URL is the same version as current. Exiting."
+    exit
+} elseif ($DownloadVersion -lt $InstalledVersion) {
+    Write-Host "The download URL is older than current install. Exiting."
+    exit
+} elseif ($DownloadVersion -gt $InstalledVersion) {
+    Write-Host "The download URL is newer than current install. Proceeding..."
 }
 
 # Backup before upgrading
@@ -120,7 +141,7 @@ if ($Process.ExitCode -ne 0 -or $installerVer -ne $ServiceVersion) {
         Start-Sleep -Seconds 10 # Give the service a moment to settle
         $file = "${env:ProgramFiles(x86)}\ScreenConnect\App_Themes\Base.css"
         if (Test-Path "$file") {
-	        (Get-Content $file) -replace 'TransitionTime: 0.+s', 'TransitionTime: 0s' | Set-Content $file
+            (Get-Content $file) -replace 'TransitionTime: 0.+s', 'TransitionTime: 0s' | Set-Content $file
         }
     }
     # Remove old backups and installers
