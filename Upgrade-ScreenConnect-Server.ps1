@@ -7,6 +7,10 @@ Requirements:
   reinstall your old version and restore from the backup files.
 - Upgrade will only be performed if the installer is newer than the currently installed version.
 
+1.2 / 2026-01-12
+    Added - Output for backup/installer deletions
+    Changed - More detailed error messages
+    Fixed - Wrong variable name caused version comparison to fail, simplified variable usage to avoid future confusion
 1.1 / 2025-12-11
 	Added - Better RMM detection/handling to avoid errors
 	Added - Exit with error if Download Filename can't be determined
@@ -82,26 +86,24 @@ function Get-Download {
 # Test if installed
 $ServicePath = [System.IO.Path]::Combine(${env:ProgramFiles(x86)}, "ScreenConnect\Bin", "ScreenConnect.Service.exe")
 if (!(Test-Path $ServicePath)) {
-    Exit-WithError "Unable to locate ScreenConnect Service executable file. Quitting."
+    Exit-WithError "Unable to locate ScreenConnect Service file, ScreenConnect does not seem to be installed. Quitting."
 }
-$ServiceVersion = (Get-Command $ServicePath).FileVersionInfo.FileVersion
+[version]$InstalledVersion = (Get-Command $ServicePath).FileVersionInfo.FileVersion
 Write-Host "Installed Path:`t`t" $ServicePath
-Write-Host "Installed Version:`t" $ServiceVersion
+Write-Host "Installed Version:`t" $InstalledVersion
 
 # Determine download URL
 $Request = Invoke-WebRequest -Uri $DownloadPage -UseBasicParsing
 $DownloadFilename = (($Request).Links.outerHTML | Select-String -Pattern "ScreenConnect_[\d\.]+_$ReleaseType\.msi").matches.value | Select-Object -First 1
 if ([string]::IsNullOrWhiteSpace($DownloadFilename)) {
-    Exit-WithError "Download Filename could not be determined. Exiting."
+    Exit-WithError "Download Filename could not be determined. Check to make sure `$DownloadPage, `$ReleaseType are correct or if `$DownloadFilename regex needs updating. Exiting."
 }
 $DownloadURL = $BaseDownloadURL + $DownloadFilename
 Write-Host "Download URL:`t`t" $DownloadURL
 
 # Check existing version against version to install
-$DownloadVersion = [regex]::new('(?<=ScreenConnect_)[\d\.]+').matches($DownloadURL).value
-Write-Host "Download URL Version:`t" $InstallerVersion
-$InstalledVersion = [version]$ServiceVersion
-$DownloadVersion = [version]$InstallerVersion
+$DownloadVersion = [version][regex]::new('(?<=ScreenConnect_)[\d\.]+').matches($DownloadURL).value
+Write-Host "Download URL Version:`t" $DownloadVersion
 if ($DownloadVersion -eq $InstalledVersion) {
     Write-Host "The download URL is the same version as current. Exiting."
     exit
@@ -145,6 +147,14 @@ if ($Process.ExitCode -ne 0 -or $installerVer -ne $ServiceVersion) {
         }
     }
     # Remove old backups and installers
-    Get-ChildItem "$BackupFolder\SC Backup*" | Where-Object { $_.LastWriteTime -lt $((Get-Date).AddDays(-$DaysToKeepBackups)) } | Remove-Item -Recurse
-    Get-ChildItem "$DownloadFolder\*" | Where-Object { $_.LastWriteTime -lt $((Get-Date).AddDays(-$DaysToKeepInstallers)) } | Remove-Item
+    $BackupsToDelete = Get-ChildItem "$BackupFolder\SC Backup*" | Where-Object { $_.LastWriteTime -lt $((Get-Date).AddDays(-$DaysToKeepBackups)) }
+    foreach ($Backup in $BackupsToDelete) {
+        Write-Host "Removing old backup: $Backup"
+        Remove-Item $Backup -Recurse
+    }
+    $InstallersToDelete += Get-ChildItem "$DownloadFolder\*" | Where-Object { $_.LastWriteTime -lt $((Get-Date).AddDays(-$DaysToKeepInstallers)) }
+    foreach ($Installer in $InstallersToDelete) {
+        Write-Host "Removing old installer: $Installer"
+        Remove-Item $Installer -Recurse
+    }
 }
