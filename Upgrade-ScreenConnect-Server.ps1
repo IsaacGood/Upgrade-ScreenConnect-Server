@@ -7,6 +7,8 @@ Requirements:
   reinstall your old version and restore from the backup files.
 - Upgrade will only be performed if the installer is newer than the currently installed version.
 
+1.3 / 2026-02-07
+    Fixed - Missed a variable reference related to last version's fix, causing false fail error
 1.2 / 2026-01-12
     Added - Output for backup/installer deletions
     Changed - More detailed error messages
@@ -133,7 +135,7 @@ $Process = Start-Process cmd -ArgumentList $Arguments -Wait -PassThru
 # Get the current version again
 [version]$ServiceVersion = (Get-Command $ServicePath).FileVersionInfo.FileVersion
 # Check if upgrade was successful
-if ($Process.ExitCode -ne 0 -or $installerVer -ne $ServiceVersion) {
+if ($Process.ExitCode -ne 0 -or $DownloadVersion -ne $ServiceVersion) {
     Get-Content $InstallerLogFile -ErrorAction SilentlyContinue | Select-Object -Last 200
     Exit-WithError "Upgrade failed, please troubleshoot manually. Log file: $InstallerLogFile"
 } else {
