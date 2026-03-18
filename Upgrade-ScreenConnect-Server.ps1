@@ -7,6 +7,8 @@ Requirements:
   reinstall your old version and restore from the backup files.
 - Upgrade will only be performed if the installer is newer than the currently installed version.
 
+1.4 / 2026-03-18
+    Fixed - Version number was not being inserted in backup folder name due to variable name change
 1.3 / 2026-02-07
     Fixed - Missed a variable reference related to last version's fix, causing false fail error
 1.2 / 2026-01-12
@@ -117,7 +119,7 @@ if ($DownloadVersion -eq $InstalledVersion) {
 }
 
 # Backup before upgrading
-$BackupSubFolder = "$BackupFolder\SC Backup of $ServiceVersion - $(Get-Date -Format 'yyyy-MM-dd-HHmmss')"
+$BackupSubFolder = "$BackupFolder\SC Backup of $InstalledVersion - $(Get-Date -Format 'yyyy-MM-dd-HHmmss')"
 Write-Host "Backing up to: $BackupSubFolder"
 New-Item -ItemType Directory -Path $BackupSubFolder | Out-Null
 $Backup = robocopy "${env:ProgramFiles(x86)}\ScreenConnect" "$BackupSubFolder" /s /r:6
